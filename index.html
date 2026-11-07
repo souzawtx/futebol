@@ -291,6 +291,37 @@ table.tb{width:100%;border-collapse:collapse;font-size:.84rem;margin-top:12px}
 .evRow .d{color:var(--dim);font-weight:600;flex:none;width:74px}
 .starsBig{font-size:1.5rem;letter-spacing:4px;color:var(--gold);text-shadow:0 2px 8px rgba(0,0,0,.6)}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.001s !important;transition-duration:.001s !important}}
+/* ===== v3.1 · acabamento visual e movimento ===== */
+:root{--ease:cubic-bezier(.22,1,.36,1)}
+.btn{transition:transform .25s var(--ease),box-shadow .25s var(--ease),filter .2s,border-color .2s,color .2s}
+.btn:hover{filter:brightness(1.06)}
+.btn.lime::after,.btn.gold::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 35%,rgba(255,255,255,.5) 50%,transparent 65%);transform:translateX(-130%);transition:transform .7s var(--ease);pointer-events:none}
+.btn.lime:hover::after,.btn.gold:hover::after{transform:translateX(130%)}
+.tile,.iconbtn,.chip,.stat{transition:transform .3s var(--ease),box-shadow .3s var(--ease),border-color .25s,background .25s}
+.stat:hover{transform:translateY(-3px);border-color:rgba(200,240,64,.5)}
+.tile:hover{box-shadow:0 18px 38px rgba(0,0,0,.45),0 0 0 1px rgba(200,240,64,.25)}
+.pcard{transition:transform .4s var(--ease),box-shadow .4s var(--ease);animation:cardIn .6s var(--ease) backwards}
+.pcard:hover{will-change:transform}
+.cardsGrid .pcard:nth-child(2){animation-delay:.05s}.cardsGrid .pcard:nth-child(3){animation-delay:.1s}.cardsGrid .pcard:nth-child(4){animation-delay:.15s}.cardsGrid .pcard:nth-child(n+5){animation-delay:.2s}
+@keyframes cardIn{from{opacity:0;transform:translateY(18px) scale(.96)}}
+.screen{animation-duration:.5s;animation-timing-function:var(--ease)}
+.heroPitch{box-shadow:0 24px 60px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.05)}
+#field{touch-action:none;will-change:transform}
+:focus-visible{outline:2px solid var(--lime);outline-offset:3px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+/* ===== v3.2 · câmera guiada e escolha de equipe ===== */
+#faceOv{position:fixed;inset:0;z-index:9999;background:rgba(4,12,7,.95);backdrop-filter:blur(8px);display:grid;place-items:center;padding:14px;overflow:auto;animation:scrIn .35s var(--ease)}
+.fbox{width:min(440px,100%);display:grid;gap:10px;text-align:center}.fbox .kicker{justify-content:center}.fbox h2.h{margin:0}
+.fview{position:relative;width:min(340px,84vw);aspect-ratio:1;margin:0 auto;border-radius:24px;overflow:hidden;background:#000;border:1px solid var(--line)}
+.fview video,.fview img{width:100%;height:100%;object-fit:cover;display:block}.fview video{transform:scaleX(-1)}
+.fmask{position:absolute;inset:0;pointer-events:none}
+.fmask::after{content:"";position:absolute;left:50%;top:47%;width:64%;height:80%;transform:translate(-50%,-50%);border-radius:50%;border:3px solid var(--lime);box-shadow:0 0 0 999px rgba(4,12,7,.8),0 0 26px rgba(200,240,64,.45)}
+.fcam{position:absolute;top:10px;left:10px;background:rgba(255,106,77,.92);color:#fff;font-size:.64rem;font-weight:700;letter-spacing:.12em;padding:4px 9px;border-radius:999px;animation:fblink 1.4s ease-in-out infinite}
+@keyframes fblink{50%{opacity:.5}}
+.fstep{font-family:var(--disp);font-size:1.15rem;letter-spacing:.03em;color:var(--lime);min-height:1.5em}
+.frow{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.fpriv{font-size:.68rem;line-height:1.45}
+.chooseT{animation:cglow 2.6s ease-in-out infinite}@keyframes cglow{50%{box-shadow:0 0 0 1px rgba(200,240,64,.35),0 0 28px rgba(200,240,64,.16)}}
+.chooseBtns{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
 </style>
 </head>
 <body>
@@ -461,6 +492,8 @@ function migrate(){
   if(!DB.accounts)DB.accounts=[];
   DB.accounts.forEach(a=>{if(a.evaluations===undefined)a.evaluations=[]});
   DB.teams.forEach(t=>{if(!t.id)t.id=uid()});
+  /* aluno sem equipe = teamId null; vínculos antigos válidos e fotos antigas são preservados */
+  DB.accounts.forEach(a=>{if(a.teamId===undefined||(a.teamId&&!DB.teams.some(t=>t.id===a.teamId)))a.teamId=null;if(!a.photoMethod)a.photoMethod='anterior'});
   DB.v=4;
 }
 function seed(){
@@ -525,6 +558,37 @@ function validTeamName(name,ignoreId){
   if(DB.teams.some(t=>t.id!==ignoreId&&t.name.toLowerCase()===n.toLowerCase()))return 'Já existe uma equipe com esse nome.';
   return null;
 }
+
+const escH=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+const inChamp=t=>DB.champs.some(c=>c.teamIds.includes(t.id)&&c.matches.some(m=>!m.done));
+/*TL-START*/
+function joinTeam(a,tid){
+  const t=DB.teams.find(x=>x.id===tid);
+  if(!a||a.approvalStatus!=='approved')return 'Seu cadastro ainda não foi aprovado pelo professor.';
+  if(!t||t.bots)return 'Equipe indisponível.';
+  if(a.teamId||DB.teams.some(x=>(x.players||[]).includes(a.studentId)))return 'Você já pertence a uma equipe. Peça a troca ao professor.';
+  if((t.players||[]).length>=5)return 'EQUIPE COMPLETA';
+  if(inChamp(t))return 'Campeonato em andamento: só o professor altera esta equipe agora.';
+  t.players=(t.players||[]).concat(a.studentId);a.teamId=t.id;a.teamName=t.name;save();return null;
+}
+function createTeamFor(a,o){
+  if(!a||a.approvalStatus!=='approved')return 'Seu cadastro ainda não foi aprovado pelo professor.';
+  if(a.teamId||DB.teams.some(x=>(x.players||[]).includes(a.studentId)))return 'Você já pertence a uma equipe.';
+  const e=validTeamName(o.name,null);if(e)return e;
+  const t={id:uid(),name:o.name.trim(),ownerId:a.id,cA:o.cA,cB:o.cB,gk:o.gk,players:[a.studentId],captain:a.studentId,gkId:null};
+  DB.teams.push(t);a.teamId=t.id;a.teamName=t.name;save();return null;
+}
+function syncTeamLinks(t){ /* um aluno só em uma equipe; mantém conta e elenco coerentes */
+  DB.teams.forEach(o=>{if(o.id!==t.id)o.players=(o.players||[]).filter(id=>!t.players.includes(id))});
+  DB.accounts.forEach(x=>{if(t.players.includes(x.studentId)){x.teamId=t.id;x.teamName=t.name}else if(x.teamId===t.id){x.teamId=null;x.teamName=null;x.teamSwapReq=null}});
+}
+function playBlock(){
+  const a=currentAccount();if(!a)return null;
+  if(a.approvalStatus!=='approved')return '🔒 Seu jogador ainda não foi liberado.';
+  if(!a.teamId||!DB.teams.some(t=>t.id===a.teamId))return '🛡️ Escolha sua equipe na aba TIMES para jogar.';
+  return null;
+}
+/*TL-END*/
 
 /* ---------- cálculos escolares (agora com vazio real) ---------- */
 const CRIT=[['PAR','Participação'],['COM','Comportamento'],['ATI','Atividades'],['PRO','Provas'],['TRA','Trabalhos'],['DES','Desempenho geral']];
@@ -625,7 +689,7 @@ function cardHTML(s,big){
     <div class="pc-top"><div class="pc-ger">${ger==null?'—':ger}</div><div class="pc-pos">${POSN[s.pos]}<br>${s.num?('Nº '+s.num):''}</div></div>
     <div class="pc-face"><img src="${s.photo||avatarURL(s)}" alt="${s.name}"></div>
     <div class="pc-name">${s.name}</div>
-    ${acc&&acc.teamName?`<div class="pc-team">🛡️ ${acc.teamName}</div>`:''}
+    ${acc&&acc.teamName?`<div class="pc-team">🛡️ ${acc.teamName||'sem equipe'}</div>`:''}
     <div class="pc-stars">${m==null?'<span style="opacity:.4">☆☆☆☆☆</span>':STARHTML(st)}</div>
     <div class="pc-stats">
       <div>PAS<b>${ger==null?'—':a.PAS}</b></div><div>CHU<b>${ger==null?'—':a.CHU}</b></div>
@@ -645,7 +709,7 @@ function openCard(s,evolution){
      <div>${cardHTML(s,true)}</div>
      <div>
        <h2 class="h" style="margin-top:0">${s.name.toUpperCase()}</h2>
-       <p class="hint">Posição <b style="color:var(--lime)">${POSN[s.pos]}</b> · Camisa <b style="color:var(--lime)">${s.num||'—'}</b>${acc&&acc.teamName?` · Time <b style="color:var(--lime)">${acc.teamName}</b>`:''}</p>
+       <p class="hint">Posição <b style="color:var(--lime)">${POSN[s.pos]}</b> · Camisa <b style="color:var(--lime)">${s.num||'—'}</b>${acc&&acc.teamName?` · Time <b style="color:var(--lime)">${acc.teamName||'sem equipe'}</b>`:''}</p>
        <div class="starsBig" style="margin:10px 0">${m==null?'<span style="opacity:.4">☆☆☆☆☆</span>':STARHTML(starsOf(m))} <span style="font-size:.8rem;color:var(--dim);letter-spacing:0">${m==null?'média escolar: não avaliada':'média escolar '+fmt1(m)+' / 10'}</span></div>
        <table class="tb"><tr><th>Atributo</th><th>Nota</th><th>Barra</th></tr>
         ${[['Passe',a.PAS],['Chute',a.CHU],['Corrida',a.COR],['Defesa',a.DEF],['Habilidade',a.HAB]].map(([n,v])=>
@@ -675,20 +739,17 @@ function sparkSVG(s){
 /* =====================================================================
    CONTAS: criar, entrar, área do aluno
 ===================================================================== */
-let suPhoto=null;
+let suPhoto=null,suMode=null;
 function signupModal(){
-  suPhoto=null;
+  suPhoto=null;suMode=null;
   openModal(`<span class="kicker">Nova conta de aluno</span><h2 class="h" style="margin-top:6px">CRIAR CONTA</h2>
   <div class="fgrid">
-    <div class="photoDrop" style="width:120px;height:120px" onclick="document.getElementById('suFile').click()">
-      <span class="ph" id="suPh">📷</span><img id="suPrev" style="display:none">
-      <input type="file" id="suFile" accept="image/*" hidden></div>
-    <p class="hint" style="text-align:center">Fotografia do rosto — <b>obrigatória</b></p>
+    <div class="photoDrop" style="width:120px;height:120px" onclick="suCapture()">
+      <span class="ph" id="suPh">📷</span><img id="suPrev" style="display:none"></div>
+    <button class="btn ghost sm" type="button" onclick="suCapture()">📷 FAZER RECONHECIMENTO FACIAL</button>
+    <p class="hint" style="text-align:center">Foto de perfil <b>pela câmera</b> — obrigatória (não é possível enviar da galeria)</p>
     <div><label class="lb">Nome completo</label><input class="inp" id="suNome" maxlength="40" placeholder="Ex.: Maria Souza"></div>
-    <div class="fgrid cols2">
-      <div><label class="lb">Nome de usuário</label><input class="inp" id="suUser" maxlength="16" placeholder="Ex.: maria.s" autocomplete="off"></div>
-      <div><label class="lb">Nome do seu time (até 22)</label><input class="inp" id="suTeam" maxlength="22" placeholder="Ex.: Falcões FC"></div>
-    </div>
+    <div><label class="lb">Nome de usuário</label><input class="inp" id="suUser" maxlength="16" placeholder="Ex.: maria.s" autocomplete="off"></div>
     <div class="fgrid cols2">
       <div><label class="lb">Senha</label><div class="pwRow"><input class="inp" id="suP1" type="password" placeholder="Mín. 4 caracteres"><button class="eyeBtn" onclick="togglePw('suP1',this)">👁</button></div></div>
       <div><label class="lb">Confirmar senha</label><div class="pwRow"><input class="inp" id="suP2" type="password" placeholder="Repita a senha"><button class="eyeBtn" onclick="togglePw('suP2',this)">👁</button></div></div>
@@ -703,21 +764,11 @@ function signupModal(){
     <p class="hint" style="font-size:.72rem">🔒 Após o cadastro, sua carta fica bloqueada até um professor aprovar seu jogador. Protótipo local: os dados ficam salvos apenas neste navegador.</p>
   </div>`);
   $$('#suPos button').forEach(b=>b.onclick=()=>{$$('#suPos button').forEach(x=>x.classList.remove('on'));b.classList.add('on')});
-  $('#suFile').addEventListener('change',e=>{
-    const f=e.target.files[0];if(!f)return;
-    const rd=new FileReader();rd.onload=()=>{const im=new Image();im.onload=()=>{
-      const c=document.createElement('canvas');const S2=140;c.width=c.height=S2;const x=c.getContext('2d');
-      const m=Math.min(im.width,im.height);x.drawImage(im,(im.width-m)/2,(im.height-m)/2,m,m,0,0,S2,S2);
-      suPhoto=c.toDataURL('image/jpeg',.82);
-      $('#suPrev').src=suPhoto;$('#suPrev').style.display='block';$('#suPh').style.display='none';
-      $('#suMsg').textContent='✅ Foto carregada!';$('#suMsg').className='formMsg ok';
-    };im.src=rd.result};rd.readAsDataURL(f);
-  });
   $('#suGo').onclick=async()=>{
     const err=m=>{$('#suMsg').textContent=m;$('#suMsg').className='formMsg'};
     const nome=$('#suNome').value.trim();
     if(nome.length<3)return err('Digite seu nome completo.');
-    if(!suPhoto)return err('A fotografia do rosto é obrigatória.');
+    if(!suMode)return err('Conclua o reconhecimento facial pela câmera (ou peça a validação presencial).');
     const un=$('#suUser').value.trim();
     if(un.length<3)return err('O nome de usuário precisa de ao menos 3 caracteres.');
     if(!/^[a-zA-Z0-9._]+$/.test(un))return err('Use apenas letras, números, ponto e _ no usuário.');
@@ -725,24 +776,20 @@ function signupModal(){
     const p1=$('#suP1').value,p2=$('#suP2').value;
     if(p1.length<4)return err('A senha precisa de ao menos 4 caracteres.');
     if(p1!==p2)return err('As duas senhas não conferem.');
-    const tn=$('#suTeam').value.trim();
-    const verr=validTeamName(tn,null);if(verr)return err(verr);
     if(!$('#suAuth').checked)return err('É necessária a autorização de uso da imagem.');
     const salt=genSalt(),passwordHash=await hashPass(p1,salt);
     const pos=$('#suPos .on').dataset.v;
-    const acc={id:uid(),nome,username:un,usernameLower:un.toLowerCase(),foto:suPhoto,salt,passwordHash,
-      teamName:tn,position:pos,approvalStatus:'pending',approvalDate:null,approvalTeacher:null,rejectReason:'',
+    const acc={id:uid(),nome,username:un,usernameLower:un.toLowerCase(),foto:suMode==='camera'?suPhoto:null,salt,passwordHash,
+      teamName:null,photoMethod:suMode,position:pos,approvalStatus:'pending',approvalDate:null,approvalTeacher:null,rejectReason:'',
       unlockSeen:false,createdAt:new Date().toISOString(),
       points:null,stars:null,schoolAverage:null,rarity:null,evaluations:[],studentId:null,teamId:null};
     const stu={id:uid(),accountId:acc.id,name:nome,pos,num:0,skin:['#f0c8a0','#e8b58c','#c98d5f','#8a5a3b'][hash(nome)%4],
-      photo:suPhoto,auth:true,createdAt:acc.createdAt,evals:[],approved:false};
-    const PAL=[['#1f9d4a','#0c3a20','#ffc23c'],['#e2492f','#5c130a','#3fd4ff'],['#2456c9','#0d1f4d','#ffc23c'],['#7a3cc9','#2a1052','#c8f040'],['#c9931f','#4d3608','#3fd4ff'],['#14938b','#063a36','#ff6a4d']];
-    const pal=PAL[hash(nome)%PAL.length];
-    const team={id:uid(),name:tn,ownerId:acc.id,cA:pal[0],cB:pal[1],gk:pal[2],players:[stu.id],captain:stu.id,gkId:null};
-    acc.studentId=stu.id;acc.teamId=team.id;
-    DB.accounts.push(acc);DB.students.push(stu);DB.teams.push(team);
+      photo:suMode==='camera'?suPhoto:null,auth:true,createdAt:acc.createdAt,evals:[],approved:false};
+    if(!acc.foto)acc.foto=avatarURL(stu); /* sem câmera: o professor captura a foto presencialmente */
+    acc.studentId=stu.id;
+    DB.accounts.push(acc);DB.students.push(stu);
     save();setSession({type:'student',id:acc.id});updateNavMe();closeModal();
-    toast('Conta criada! Sua carta está 🔒 aguardando aprovação do professor.');
+    toast('Conta criada! Aguarde a aprovação do professor; depois escolha sua equipe na aba TIMES. 🔒');
     go('scr-account');
   };
 }
@@ -767,6 +814,95 @@ function loginModal(){
 }
 function loginCloseThenSignup(){closeModal();setTimeout(signupModal,120)}
 
+/* ---------- RECONHECIMENTO FACIAL: captura guiada pela câmera ----------
+   Real: câmera (getUserMedia), recorte quadrado, compressão e — só se o navegador tiver FaceDetector — detecção de rosto/giro.
+   NÃO é prova de vida nem verificação oficial de identidade; protótipo local, sem antifraude de servidor. */
+const FSTEPS=['Posicione o rosto no centro da moldura','Olhe diretamente para a câmera','Vire levemente o rosto para a esquerda','Vire levemente para a direita','Volte a olhar para a câmera','Tudo certo! Faça a captura da foto'];
+let fStream=null,fTimer=0;
+function stopCam(){clearInterval(fTimer);fTimer=0;if(fStream){fStream.getTracks().forEach(t=>t.stop());fStream=null}const v=document.getElementById('fVid');if(v)v.srcObject=null}
+function faceCapture(done){
+  stopCam();const old=document.getElementById('faceOv');if(old)old.remove();
+  const ov=document.createElement('div');ov.id='faceOv';
+  ov.innerHTML=`<div class="fbox"><span class="kicker">Foto de perfil</span><h2 class="h">RECONHECIMENTO FACIAL</h2>
+  <p class="hint">Vamos registrar sua foto de perfil. Posicione seu rosto dentro da área indicada, olhe para a câmera e siga as instruções.</p>
+  <div class="fview"><video id="fVid" playsinline muted></video><img id="fShot" alt="" style="display:none"><div class="fmask"></div><span class="fcam" id="fCam" style="display:none">● CÂMERA ATIVADA</span></div>
+  <div class="fstep" id="fStep">Toque em INICIAR CAPTURA para ativar a câmera.</div><div class="formMsg" id="fMsg"></div>
+  <div class="frow"><button class="btn lime big" id="fGo">📷 INICIAR CAPTURA</button><button class="btn gold big" id="fNext" style="display:none">PRÓXIMO PASSO ▶</button><button class="btn ghost" id="fRetry" style="display:none">↺ TENTAR NOVAMENTE</button><button class="btn green big" id="fOk" style="display:none">✔ CONFIRMAR FOTO</button></div>
+  <div class="frow"><button class="btn ghost sm" id="fPres" style="display:none">🧑‍🏫 PEDIR VALIDAÇÃO PRESENCIAL</button><button class="btn ghost sm" id="fX">CANCELAR</button></div>
+  <p class="hint fpriv">🔒 A foto é usada só como foto de perfil e na carta deste jogo escolar, visível ao próprio aluno e ao professor. Não guardamos modelos nem vetores faciais. Isto <b>não é verificação oficial de identidade</b> nem prova de vida.</p></div>`;
+  document.body.appendChild(ov);
+  const q=id=>ov.querySelector('#'+id),show=(id,on)=>{q(id).style.display=on?'':'none'},say=(t,ok)=>{const m=q('fMsg');m.textContent=t;m.className='formMsg'+(ok?' ok':'')};
+  const close=()=>{stopCam();ov.remove()};
+  let step=0,turn=0,busy=false,shot=null,det=null;
+  try{if('FaceDetector' in window)det=new FaceDetector({fastMode:true,maxDetectedFaces:1})}catch(e){det=null}
+  const label=()=>{q('fStep').textContent=(step+1)+'/6 · '+FSTEPS[step];q('fNext').textContent=step===5?'📸 CAPTURAR':'PRÓXIMO PASSO ▶'};
+  const noCam=m=>{stopCam();show('fCam',false);say(m);show('fGo',true);show('fPres',true)};
+  async function check(){
+    const v=q('fVid');if(busy||!det||!fStream||v.readyState<2)return;busy=true;let f;
+    try{f=(await det.detect(v))[0]}catch(e){busy=false;return}
+    busy=false;if(!fStream)return;
+    const W=v.videoWidth,H=v.videoHeight;let ok=false,msg;
+    if(!f)msg='Nenhum rosto detectado. Fique de frente para a câmera.';
+    else{const b=f.boundingBox;
+      if(b.width/W<.22)msg='Aproxime o rosto da câmera.';
+      else if(Math.abs((b.x+b.width/2)/W-.5)>.2||Math.abs((b.y+b.height/2)/H-.5)>.22)msg='Centralize o rosto dentro da moldura.';
+      else{ok=true;msg='✓ Rosto detectado e centralizado.';
+        if(step===2||step===3){
+          const L=f.landmarks||[],ey=L.filter(l=>l.type==='eye').flatMap(l=>l.locations),no=L.find(l=>l.type==='nose');
+          if(ey.length>=2&&no){const r=(no.locations[0].x-(ey[0].x+ey[1].x)/2)/(Math.abs(ey[0].x-ey[1].x)||1);
+            if(Math.abs(r)<.2){ok=false;msg='Vire um pouco mais o rosto.'}
+            else if(step===2){turn=Math.sign(r);msg='✓ Giro detectado.'}
+            else if(Math.sign(r)===turn){ok=false;msg='Vire para o lado oposto ao do passo anterior.'}
+            else msg='✓ Giro detectado.';
+          }else msg='✓ Rosto detectado (este navegador não informa o giro; ele não foi verificado).';
+        }}}
+    q('fNext').disabled=!ok;say(msg,ok);
+  }
+  async function start(){
+    stopCam();say('');show('fPres',false);
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return noCam('Este navegador não consegue acessar a câmera. Peça a validação presencial ao professor.');
+    try{fStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:720},height:{ideal:720}},audio:false})}
+    catch(e){return noCam(e&&e.name==='NotAllowedError'?'Acesso à câmera negado. Permita a câmera nas configurações do navegador e tente de novo, ou peça a validação presencial.':'Nenhuma câmera disponível. Peça a validação presencial ao professor.')}
+    if(!ov.isConnected){stopCam();return}
+    const v=q('fVid');v.srcObject=fStream;try{await v.play()}catch(e){}
+    show('fVid',true);show('fShot',false);show('fCam',true);show('fGo',false);show('fRetry',false);show('fOk',false);show('fNext',true);show('fPres',true);
+    step=0;turn=0;label();
+    if(det){q('fNext').disabled=true;say('Procurando seu rosto…');fTimer=setInterval(check,300)}
+    else{q('fNext').disabled=false;say('Este navegador não detecta rostos automaticamente: as poses são só orientação e o professor confere a foto.')}
+  }
+  q('fGo').onclick=start;q('fRetry').onclick=start;q('fX').onclick=close;
+  q('fPres').onclick=()=>{close();done(null,'presencial')};
+  q('fOk').onclick=()=>{close();done(shot,'camera')};
+  q('fNext').onclick=()=>{
+    if(step<5){step++;label();if(det){q('fNext').disabled=true;check()}return}
+    const v=q('fVid'),S=180,c=document.createElement('canvas');c.width=c.height=S;const g=c.getContext('2d'),m=Math.min(v.videoWidth,v.videoHeight);
+    g.translate(S,0);g.scale(-1,1);g.drawImage(v,(v.videoWidth-m)/2,(v.videoHeight-m)/2,m,m,0,0,S,S);
+    shot=c.toDataURL('image/jpeg',.8);stopCam(); /* câmera desligada assim que a foto é tirada */
+    q('fShot').src=shot;show('fVid',false);show('fShot',true);show('fCam',false);show('fNext',false);show('fPres',false);show('fRetry',true);show('fOk',true);
+    q('fStep').textContent='Confira sua foto';say('');
+  };
+}
+function suCapture(){
+  faceCapture((p,mode)=>{
+    suMode=mode;suPhoto=p;const im=$('#suPrev'),ph=$('#suPh'),m=$('#suMsg');if(!im)return;
+    if(p){im.src=p;im.style.display='block';ph.style.display='none';m.textContent='✅ Foto capturada pela câmera!'}
+    else{im.style.display='none';ph.style.display='';ph.textContent='🧑‍🏫';m.textContent='Sem câmera: um professor fará a captura da sua foto presencialmente.'}
+    m.className='formMsg ok';
+  });
+}
+function newPhoto(){
+  const a=currentAccount(),s=a&&DB.students.find(x=>x.id===a.studentId);if(!s)return;
+  if(!confirm('O responsável autoriza a nova captura e o uso da foto neste jogo escolar?'))return;
+  faceCapture((p,mode)=>{if(mode!=='camera'){toast('Para atualizar a foto é preciso usar a câmera.','err');return}
+    a.foto=p;s.photo=p;a.photoMethod='camera';delete faceCache[s.id+'p'];delete faceCache[s.id+'a'];save();renderAccount();toast('📷 Foto atualizada!')});
+}
+function teacherCapture(id){
+  if(!isTeacher())return;
+  const a=DB.accounts.find(x=>x.id===id),s=a&&DB.students.find(x=>x.id===a.studentId);if(!s)return;
+  faceCapture((p,mode)=>{if(mode!=='camera'){toast('A captura exige câmera neste aparelho.','err');return}
+    a.foto=p;s.photo=p;a.photoMethod='camera';delete faceCache[s.id+'a'];save();renderTeach();toast('📷 Foto registrada para '+a.nome+'.')});
+}
+
 /* ---------- área do aluno ---------- */
 function renderAccount(){
   const a=currentAccount();
@@ -777,8 +913,9 @@ function renderAccount(){
       <button class="btn gold big" onclick="loginModal()">ENTRAR NA CONTA</button>
       <button class="btn lime big" onclick="signupModal()">CRIAR CONTA</button></div></div>`;return}
   const s=DB.students.find(x=>x.id===a.studentId);
-  const team=DB.teams.find(t=>t.id===a.teamId);
-  if(!s||!team){box.innerHTML='<p class="hint">Dados inconsistentes. Fale com um professor.</p>';return}
+  const team0=DB.teams.find(t=>t.id===a.teamId),team=team0||{id:'',name:'',cA:'#1f9d4a',cB:'#0c3a20',gk:'#ffc23c',players:[],captain:null};
+  if(!s){box.innerHTML='<p class="hint">Dados inconsistentes. Fale com um professor.</p>';return}
+  const noTeam=a.approvalStatus==='approved'?`<div class="statusPanel pend chooseT"><h3>⚽ ESCOLHA SUA EQUIPE</h3><p class="hint" style="margin-top:6px">Você ainda não tem equipe. Entre em uma ou crie a sua na aba TIMES.</p><button class="btn lime" style="margin-top:8px" onclick="go('scr-teams')">🛡️ IR PARA TIMES</button></div>`:`<div class="panel" style="margin-top:12px"><span class="kicker">🛡️ Meu time</span><p class="hint" style="margin-top:8px">Depois da aprovação do professor, você escolhe sua equipe na aba TIMES.</p></div>`;
   const st=a.approvalStatus;
   let statusPanel='';
   if(st==='pending')statusPanel=`<div class="statusPanel pend"><h3>🔒 SEU JOGADOR ESTÁ AGUARDANDO LIBERAÇÃO</h3>
@@ -796,15 +933,15 @@ function renderAccount(){
     <div>
       <div style="width:240px;margin:0 auto">${cardHTML(s,true)}</div>
       <button class="btn ghost sm full" style="margin-top:12px" onclick='openCard(DB.students.find(x=>x.id===${JSON.stringify(s.id)}),true)'>🔍 VER CARTA COMPLETA</button>
-      <div class="panel" style="margin-top:12px"><span class="kicker">🛡️ Meu time</span>
+      ${noTeam&&!team0?noTeam:''}<div class="panel" style="margin-top:12px;${team0?'':'display:none'}"><span class="kicker">🛡️ Meu time</span><fieldset ${team0&&team0.captain===s.id&&!inChamp(team0)?'':'disabled'} style="border:0;min-width:0">
         <div style="margin-top:10px"><label class="lb">Nome da equipe (até 22)</label>
           <input class="inp" id="myTName" maxlength="22" value="${team.name.replace(/"/g,'&quot;')}"></div>
         <label class="lb" style="margin-top:10px">Uniforme</label>
         <div style="display:flex;gap:8px"><input type="color" class="inp" id="myCA" value="${team.cA}"><input type="color" class="inp" id="myCB" value="${team.cB}"><input type="color" class="inp" id="myGK" value="${team.gk}"></div>
         <div class="formMsg" id="myTErr"></div>
         <button class="btn lime full" id="myTSave" style="margin-top:8px">💾 SALVAR MEU TIME</button>
-        <div class="rowList" style="margin-top:10px">${squadOf(team).map(p=>`<div class="evRow"><b>${p.name}</b><span class="tag pos">${POSN[p.pos]}</span><span style="margin-left:auto">Camisa ${p.shirtNum}</span></div>`).join('')}</div>
-        <p class="hint" style="margin-top:8px;font-size:.72rem">Seu time aparece no placar, nos campeonatos e na classificação. Só você pode editar este time.</p>
+        </fieldset><div class="rowList" style="margin-top:10px">${squadOf(team).map(p=>`<div class="evRow"><b>${p.name}</b><span class="tag pos">${POSN[p.pos]}</span><span style="margin-left:auto">Camisa ${p.shirtNum}</span></div>`).join('')}</div>
+        <p class="hint" style="margin-top:8px;font-size:.72rem">Seu time aparece no placar, nos campeonatos e na classificação. Só o capitão edita nome e cores; o elenco é administrado pelo professor.</p>
       </div>
     </div>
     <div>
@@ -815,6 +952,7 @@ function renderAccount(){
           <span class="hint">@${a.username} · desde ${dBR(a.createdAt)}</span></div>
           <span style="margin-left:auto">${st==='approved'?'<span class="tag ok">✅ APROVADO</span>':st==='rejected'?'<span class="tag no">🔴 RECUSADO</span>':'<span class="tag wait">⏳ AGUARDANDO</span>'}</span>
         </div>
+        <button class="btn ghost sm" style="margin-top:12px" onclick="newPhoto()">📷 ATUALIZAR FOTO PELA CÂMERA</button>
         <div style="margin-top:12px"><label class="lb">Minha posição</label>
           <div class="seg" id="myPos">${['GOL','DEF','MEI','ATA'].map(p=>`<button data-v="${p}" class="${s.pos===p?'on':''}">${POSN[p]}</button>`).join('')}</div></div>
       </div>
@@ -840,6 +978,7 @@ function renderAccount(){
     </div>
   </div>`;
   $('#myTSave').onclick=()=>{
+    if(!team0||team0.captain!==s.id||inChamp(team0)){toast('Só o capitão edita a equipe (e não durante campeonato em andamento).','err');return}
     const v=$('#myTName').value.trim();
     const e2=validTeamName(v,team.id);
     if(e2){$('#myTErr').textContent=e2;return}
@@ -956,19 +1095,62 @@ const teamById=id=>DB.teams.find(t=>t.id===id);
 function renderTeamsAll(){renderTeamsTab();renderChampsTab();renderTableTab();renderArtsTab()}
 function teamPlayable(t){if(!t.ownerId)return true;const o=DB.accounts.find(a=>a.id===t.ownerId);return !!o&&o.approvalStatus==='approved'}
 function canManageTeam(t){return isTeacher()||(session&&session.type==='student'&&t.ownerId===session.id)}
+function askSwap(){const a=currentAccount();if(!a||!a.teamId)return;a.teamSwapReq=new Date().toISOString();save();renderTeamsTab();toast('Pedido de troca enviado ao professor. 🔁')}
+function pickJoin(){const l=document.getElementById('teamList');if(l)l.scrollIntoView({behavior:'smooth',block:'start'});toast('Toque em uma equipe com vaga para entrar.')}
 function renderTeamsTab(){
-  $('#tt-teams').innerHTML=`${isTeacher()?'<button class="btn lime" onclick="teamForm()">✚ CRIAR EQUIPE</button>':'<p class="hint">Alunos criam o próprio time automaticamente ao abrir a conta. Professores podem criar equipes extras.</p>'}
-  <div class="rowList">${DB.teams.map(t=>{
-    const squad=squadOf(t);
-    const can=canManageTeam(t);
-    return `<div class="rrow" onclick="${can?`teamForm('${t.id}')`:`toast('Somente o dono do time ou um professor pode editar.','err')`}">
+  const a=currentAccount();let top;
+  if(isTeacher())top='<button class="btn lime" onclick="teamForm()">✚ CRIAR EQUIPE</button>';
+  else if(a&&a.approvalStatus==='approved'){
+    const mt=a.teamId&&teamById(a.teamId);
+    top=mt?`<div class="statusPanel okp chooseT"><h3>🛡️ SUA EQUIPE: ${escH(mt.name)}</h3><p class="hint" style="margin-top:6px">Você joga por esta equipe (${(mt.players||[]).length}/5). Para trocar, fale com o professor.</p>${a.teamSwapReq?'<span class="tag wait" style="margin-top:8px">🔁 PEDIDO DE TROCA ENVIADO</span>':'<button class="btn ghost sm" style="margin-top:8px" onclick="askSwap()">🔁 SOLICITAR TROCA</button>'}</div>`
+    :`<div class="statusPanel pend chooseT"><h3>⚽ ESCOLHA SUA EQUIPE</h3><p class="hint" style="margin-top:6px">Você ainda não tem equipe. Entre em uma equipe com vaga ou crie a sua.</p><div class="chooseBtns"><button class="btn lime big" onclick="pickJoin()">🛡️ ENTRAR EM UMA EQUIPE</button><button class="btn gold big" onclick="createTeamModal()">✚ CRIAR MINHA EQUIPE</button></div></div>`;
+  }else top=a?'<p class="hint">🔒 Depois que o professor aprovar seu cadastro, você escolhe sua equipe aqui.</p>':'<p class="hint">Entre na sua conta para escolher uma equipe. Professores podem criar equipes extras.</p>';
+  $('#tt-teams').innerHTML=top+`<div class="rowList" id="teamList">${DB.teams.map(t=>{
+    const n=(t.players||[]).length,full=!t.bots&&n>=5;
+    return `<div class="rrow" onclick="teamView('${t.id}')">
       <div class="ava" style="background:${t.cA}"></div>
-      <div><b style="font-family:var(--disp);letter-spacing:.04em;font-size:1.05rem">${t.name}</b>
-      ${t.ownerId?'<span class="tag pos" style="margin-left:6px">TIME DE ALUNO</span>':''}${!teamPlayable(t)?'<span class="tag wait" style="margin-left:6px">🔒 AGUARDANDO</span>':''}<br>
-      <span class="hint" style="font-size:.72rem">${squad.map(p=>p.name.split(' ')[0]).join(' · ')}</span></div>
-      <span class="tag pos" style="margin-left:auto">5×5</span>
+      <div><b style="font-family:var(--disp);letter-spacing:.04em;font-size:1.05rem">${escH(t.name)}</b>
+      ${t.ownerId?'<span class="tag pos" style="margin-left:6px">TIME DE ALUNO</span>':''}${!teamPlayable(t)?'<span class="tag wait" style="margin-left:6px">🔒 AGUARDANDO</span>':''}${full?'<span class="tag no" style="margin-left:6px">EQUIPE COMPLETA</span>':''}${isTeacher()&&DB.accounts.some(x=>x.teamId===t.id&&x.teamSwapReq)?'<span class="tag wait" style="margin-left:6px">🔁 TROCA SOLICITADA</span>':''}<br>
+      <span class="hint" style="font-size:.72rem">${squadOf(t).map(p=>(p.bot&&!t.bots?'🤖 ':'')+escH(p.name.split(' ')[0])).join(' · ')}</span></div>
+      <span class="tag pos" style="margin-left:auto">${t.bots?'5×5':n+'/5'}</span>
       ${(t.bots&&!t.ownerId)?'<button class="iconbtn" onclick="event.stopPropagation();delTeam(\''+t.id+'\')">🗑</button>':''}
     </div>`}).join('')}</div>`;
+}
+function teamView(id){
+  const t=teamById(id);if(!t)return;
+  const a=currentAccount(),mem=(t.players||[]).map(p=>DB.students.find(s=>s.id===p)).filter(Boolean),n=mem.length;let act='';
+  if(!t.bots&&a&&a.approvalStatus==='approved')act=a.teamId===t.id?'<span class="tag ok">✅ SUA EQUIPE</span>':a.teamId?`<p class="hint">Você já está em <b>${escH((teamById(a.teamId)||{}).name||'—')}</b>. Peça a troca ao professor.</p>`:n>=5?'<span class="tag no">EQUIPE COMPLETA</span>':'<button class="btn lime big full" id="tvJoin">✅ ENTRAR NA EQUIPE</button>';
+  else if(!t.bots&&!isTeacher())act='<p class="hint">🔒 Entre com uma conta aprovada para participar de uma equipe.</p>';
+  openModal(`<span class="kicker">Equipe ${t.bots?'da IA':'5×5'}</span>
+  <div style="display:flex;gap:12px;align-items:center;margin:8px 0"><div class="ava" style="background:${t.cA};width:64px;height:64px;display:grid;place-items:center;font-size:30px;border:3px solid ${t.cB}">🛡️</div>
+  <div><h2 class="h" style="margin:0">${escH(t.name)}</h2><span class="hint">Integrantes <b>${t.bots?5:n}/5</b> · vagas <b>${t.bots?0:Math.max(0,5-n)}</b></span></div></div>
+  <div style="display:flex;gap:6px;margin-bottom:8px"><span class="tag" style="background:${t.cA}">&nbsp;&nbsp;&nbsp;</span><span class="tag" style="background:${t.cB}">&nbsp;&nbsp;&nbsp;</span><span class="tag" style="background:${t.gk}">🧤</span></div>
+  <div class="rowList">${mem.map(s=>`<div class="evRow">${avaHTML(s)}<b>${escH(s.name)}</b>${t.captain===s.id?' ©️':''}<span class="tag pos" style="margin-left:auto">${POSN[s.pos]}</span></div>`).join('')||'<p class="hint">Ainda sem integrantes.</p>'}
+  ${!t.bots&&n<5?'<p class="hint" style="font-size:.72rem">🤖 Vagas sem aluno são preenchidas por reservas controlados pela IA.</p>':''}</div>
+  <div style="margin-top:12px;display:grid;gap:8px">${act}${canManageTeam(t)?'<button class="btn ghost" id="tvEdit">✏️ EDITAR EQUIPE</button>':''}</div>`);
+  if($('#tvJoin'))$('#tvJoin').onclick=()=>{const e=joinTeam(a,t.id);if(e){toast(e,'err');return}closeModal();renderTeamsAll();renderPlay();toast('Você entrou em '+t.name+'! ⚽')};
+  if($('#tvEdit'))$('#tvEdit').onclick=()=>{closeModal();setTimeout(()=>teamForm(t.id),120)};
+}
+function createTeamModal(){
+  const a=currentAccount();if(!a||a.approvalStatus!=='approved'){toast('Aguarde a aprovação do professor.','err');return}
+  if(a.teamId){toast('Você já pertence a uma equipe.','err');return}
+  openModal(`<span class="kicker">Nova equipe</span><h2 class="h" style="margin-top:6px">CRIAR MINHA EQUIPE</h2><div class="fgrid">
+  <div><label class="lb">Nome da equipe (até 22)</label><input class="inp" id="ctName" maxlength="22" placeholder="Ex.: Falcões FC"></div>
+  <div class="fgrid cols2" style="grid-template-columns:repeat(3,1fr)"><div><label class="lb">Cor principal</label><input type="color" class="inp" id="ctA" value="#1f9d4a"></div><div><label class="lb">Secundária</label><input type="color" class="inp" id="ctB" value="#0c3a20"></div><div><label class="lb">Goleiro</label><input type="color" class="inp" id="ctG" value="#ffc23c"></div></div>
+  <p class="hint" style="font-size:.72rem">Você será o capitão e o 1º jogador (1/5). Outros alunos entram pelas vagas.</p><div class="formMsg" id="ctErr"></div><button class="btn lime big" id="ctGo">🛡️ CRIAR EQUIPE</button></div>`);
+  $('#ctGo').onclick=()=>{const e=createTeamFor(a,{name:$('#ctName').value,cA:$('#ctA').value,cB:$('#ctB').value,gk:$('#ctG').value});
+    if(e){$('#ctErr').textContent=e;return}closeModal();renderTeamsAll();renderPlay();toast('Equipe criada! Você é o capitão. 🛡️')};
+}
+function teamEditCap(tid){
+  const t=teamById(tid),a=currentAccount();
+  if(!t||!a||t.captain!==a.studentId){toast('Só o capitão edita a equipe.','err');return}
+  if(inChamp(t)){toast('Campeonato em andamento: só o professor altera a equipe agora.','err');return}
+  openModal(`<span class="kicker">Editar equipe</span><h2 class="h" style="margin-top:6px">${escH(t.name)}</h2><div class="fgrid">
+  <div><label class="lb">Nome da equipe (até 22)</label><input class="inp" id="ceName" maxlength="22" value="${escH(t.name)}"></div>
+  <div class="fgrid cols2" style="grid-template-columns:repeat(3,1fr)"><div><label class="lb">Principal</label><input type="color" class="inp" id="ceA" value="${t.cA}"></div><div><label class="lb">Secundária</label><input type="color" class="inp" id="ceB" value="${t.cB}"></div><div><label class="lb">Goleiro</label><input type="color" class="inp" id="ceG" value="${t.gk}"></div></div>
+  <p class="hint" style="font-size:.72rem">O capitão edita nome e cores. Elenco, notas e avaliações são do professor.</p><div class="formMsg" id="ceErr"></div><button class="btn lime big" id="ceGo">💾 SALVAR</button></div>`);
+  $('#ceGo').onclick=()=>{const e=validTeamName($('#ceName').value,t.id);if(e){$('#ceErr').textContent=e;return}
+    t.name=$('#ceName').value.trim();t.cA=$('#ceA').value;t.cB=$('#ceB').value;t.gk=$('#ceG').value;syncTeamLinks(t);save();closeModal();renderTeamsAll();renderPlay();toast('Equipe atualizada! 🛡️')};
 }
 function squadOf(t){
   if(t.bots){const names=['Byte','Pixel','Vetor','Soma','Lógica'];
@@ -981,8 +1163,7 @@ function squadOf(t){
 }
 function teamForm(tid){
   const t=tid?teamById(tid):null;
-  if(t&&!canManageTeam(t)){toast('Você não pode editar este time.','err');return}
-  if(!t&&!isTeacher()){toast('Alunos criam o próprio time no cadastro da conta.','err');return}
+  if(!isTeacher()){if(t&&canManageTeam(t))return teamEditCap(tid);toast('Somente o professor administra o elenco.','err');return}
   const nt=t||{id:uid(),name:'',cA:'#1f9d4a',cB:'#0c3a20',gk:'#ffc23c',players:[],captain:null,gkId:null};
   openModal(`<span class="kicker">${t?'Editar':'Nova'} equipe</span><h2 class="h" style="margin-top:6px">EQUIPE 5×5</h2>
   <div class="fgrid">
@@ -991,13 +1172,13 @@ function teamForm(tid){
       <div><label class="lb">Uniforme</label><input type="color" class="inp" id="tCA" value="${nt.cA}"></div>
       <div><label class="lb">Calção</label><input type="color" class="inp" id="tCB" value="${nt.cB}"></div>
       <div><label class="lb">Goleiro</label><input type="color" class="inp" id="tGK" value="${nt.gk}"></div></div>
-    <div><label class="lb">Titulares — escolha exatamente 5 (🔒 = aguardando aprovação)</label>
+    <div><label class="lb">Titulares — de 1 a 5; vagas sem aluno ficam com reservas da IA (🔒 = aguardando aprovação)</label>
       <div class="rowList" style="max-height:260px;overflow:auto">${DB.students.map(s=>{
         const lk=isLocked(s);
         return `<label class="check" style="background:#0a1a10;border:1px solid var(--line);border-radius:10px;padding:8px 12px;align-items:center;${lk?'opacity:.55':''}">
         <input type="checkbox" class="tPick" value="${s.id}" ${nt.players.includes(s.id)?'checked':''} ${lk?'disabled':''}>
         ${avaHTML(s)} <b>${s.name}</b> <span class="tag pos">${POSN[s.pos]}</span>
-        <span class="hint" style="margin-left:auto">${lk?'🔒':'GER '+gerTxt(s)}</span></label>`}).join('')}</div></div>
+        <span class="hint" style="margin-left:auto">${lk?'🔒':(DB.teams.some(x=>x.id!==nt.id&&(x.players||[]).includes(s.id))?'↔ outra equipe':'GER '+gerTxt(s))}</span></label>`}).join('')}</div></div>
     <div class="fgrid cols2">
       <div><label class="lb">🧤 Goleiro titular</label><select class="inp" id="tGkSel"></select></div>
       <div><label class="lb">©️ Capitão</label><select class="inp" id="tCapSel"></select></div></div>
@@ -1009,14 +1190,14 @@ function teamForm(tid){
   upd();$$('.tPick').forEach(c=>c.onchange=upd);
   $('#tSave').onclick=()=>{
     const ids=$$('.tPick:checked').map(c=>c.value);
-    if(ids.length!==5){$('#tErr').textContent='Escolha exatamente 5 titulares.';return}
+    if(ids.length<1||ids.length>5){$('#tErr').textContent='Escolha de 1 a 5 jogadores.';return}
     const nm=$('#tName').value.trim();
     const verr=validTeamName(nm,nt.id);if(verr){$('#tErr').textContent=verr;return}
     const owner=DB.accounts.find(x=>x.teamId===nt.id);
     nt.name=nm;nt.cA=$('#tCA').value;nt.cB=$('#tCB').value;nt.gk=$('#tGK').value;
     nt.players=ids;nt.gkId=$('#tGkSel').value||ids[0];nt.captain=$('#tCapSel').value||ids[0];
-    if(owner)owner.teamName=nm; /* mantém nome do time sincronizado com a conta */
     if(!t)DB.teams.push(nt);
+    syncTeamLinks(nt);
     save();closeModal();renderTeamsAll();renderPlay();toast('Equipe salva! 🛡️')};
 }
 function delTeam(id){const t=teamById(id);if(t&&t.ownerId){toast('Times de alunos não podem ser excluídos.','err');return}
@@ -1105,6 +1286,7 @@ function renderPlay(){
     $('#pt-champ').innerHTML=lockedPlayPanel();
     return;
   }
+  if(acc&&!acc.teamId){const pn=`<div class="statusPanel pend"><h3>🛡️ ESCOLHA SUA EQUIPE</h3><p class="hint" style="margin-top:6px">Para jogar, entre em uma equipe ou crie a sua na aba TIMES.</p><button class="btn gold" style="margin-top:10px" onclick="go('scr-teams')">🛡️ IR PARA TIMES</button></div>`;$('#pt-quick').innerHTML=pn;$('#pt-champ').innerHTML=pn;return}
   const opts=DB.teams.map(t=>`<option value="${t.id}">${t.name}${teamPlayable(t)?'':' 🔒'}</option>`).join('');
   $('#pt-quick').innerHTML=`<div class="panel"><div class="fgrid cols2">
     <div><label class="lb">🏠 Time da casa</label><select class="inp" id="qH">${opts}</select></div>
@@ -1164,13 +1346,16 @@ const joy={x:0,y:0,on:false},keys={};
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const dirSign=p=>p.team===0?1:-1;
 
+let sx=0,sy=0;
 function readInput(){
   let x=joy.x,y=joy.y;
   if(keys.a)x-=1;if(keys.d)x+=1;if(keys.w)y-=1;if(keys.s)y+=1;
-  const l=Math.hypot(x,y);if(l>1){x/=l;y/=l}
+  let l=Math.hypot(x,y);if(l>1){x/=l;y/=l;l=1}
+  if(!joy.on){if(l===0)sx=sy=0;else{sx+=(x-sx)*.3;sy+=(y-sy)*.3}x=sx;y=sy;l=Math.hypot(x,y)}else{sx=x;sy=y}
   return {x,y,l:Math.min(1,l)};
 }
 function launchMatch(tH,tA,dur){
+  {const pb=playBlock();if(pb){toast(pb,'err');return}}
   if(!teamPlayable(tH)||!teamPlayable(tA)){toast('Um dos times aguarda liberação do professor. 🔒','err');return}
   const build=(t,side)=>squadOf(t).map((p,i)=>{
     const an=ANCH[i],fx=side===0?an.fx:1-an.fx;
@@ -1196,6 +1381,7 @@ function launchMatch(tH,tA,dur){
     g.addColorStop(0,col+'44');g.addColorStop(1,'rgba(0,0,0,0)');
     return {g,x:gx};
   });
+  buildPitch();snapPrev();acc=0;
   $('#sbH').textContent=tH.name.toUpperCase();$('#sbA').textContent=tA.name.toUpperCase();
   $('#sbH').style.borderLeftColor=tH.cA;$('#sbA').style.borderRightColor=tA.cA;
   $('#goalBanner').classList.remove('on');$('#ovResult').classList.remove('on');$('#ovPause').classList.remove('on');$('#pbar').style.display='none';
@@ -1211,11 +1397,28 @@ $('#btnResume').onclick=()=>{paused=false;$('#ovPause').classList.remove('on');l
 $('#btnQuit').onclick=()=>{paused=false;leaveMatch()};
 $('#btnMute').onclick=()=>{soundOn=!soundOn;$('#btnMute').textContent=soundOn?'🔊':'🔇'};
 
+/* Passo fixo (60 Hz) + interpolação: mesma física em telas de 60/120/144 Hz e sem tremidas */
+const STEP=1/60,byY=(a,c)=>a.y-c.y,ipo=(p,c,a)=>Math.abs(c-p)>90?c:p+(c-p)*a;
+let acc=0;
+function snapPrev(){const b=M.ball;b.px=b.x;b.py=b.y;b.pz=b.z;for(const p of M.players){p.px=p.x;p.py=p.y}}
 function loop(t){
-  const raw=Math.min(.033,(t-lastT)/1000);lastT=t;
-  if(M&&!paused)update(raw);
-  if(M)draw();
+  let f=(t-lastT)/1000;lastT=t;
+  if(!(f>0))f=STEP;if(f>.1)f=.1;
+  if(M&&!paused){
+    acc+=f;
+    for(let n=0;acc>=STEP&&n<4&&M;n++){snapPrev();update(STEP);acc-=STEP}
+    if(acc>=STEP)acc=0;
+  }
+  if(M)drawSmooth(paused?1:acc/STEP);
   raf=requestAnimationFrame(loop);
+}
+function drawSmooth(a){
+  const b=M.ball,ps=M.players;
+  if(a>=1||b.px===undefined)return draw();
+  const bx=b.x,by=b.y,bz=b.z;
+  for(const p of ps){p.rx=p.x;p.ry=p.y;p.x=ipo(p.px,p.x,a);p.y=ipo(p.py,p.y,a)}
+  b.x=ipo(b.px,bx,a);b.y=ipo(b.py,by,a);b.z=ipo(b.pz,bz,a);
+  try{draw()}finally{for(const p of ps){p.x=p.rx;p.y=p.ry}b.x=bx;b.y=by;b.z=bz}
 }
 function update(raw){
   M.ts+=(1-M.ts)*Math.min(1,raw*2.5);
@@ -1837,9 +2040,8 @@ function updHUD(){
   sf.style.width=(c?c.stam:100)+'%';
   sf.classList.toggle('low',!!c&&c.stam<25);
 }
-function draw(){
-  cx.save();
-  if(M.shake>0)cx.translate((Math.random()-.5)*M.shake*22,(Math.random()-.5)*M.shake*22);
+/* Campo estático: desenhado uma vez por partida e reutilizado a cada quadro */
+function paintPitch(cx){
   cx.fillStyle='#07130c';cx.fillRect(-30,-30,PW+60,PH+60);
   cx.fillStyle='rgba(200,240,64,.08)';cx.font='700 20px Anton';cx.textAlign='left';
   for(let x=40;x<PW;x+=320){cx.fillText('GOLAÇO ESCOLAR',x,34);cx.fillText('FUTEBOL 5×5',x+150,PH-20)}
@@ -1861,6 +2063,18 @@ function draw(){
     for(let y=gTop;y<=gBot;y+=12){cx.beginPath();cx.moveTo(d<0?gx-gDepth:gx,y);cx.lineTo(d<0?gx:gx+gDepth,y);cx.stroke()}
     for(let x=0;x<=gDepth;x+=12){cx.beginPath();cx.moveTo((d<0?gx-gDepth:gx)+x,gTop);cx.lineTo((d<0?gx-gDepth:gx)+x,gBot);cx.stroke()}
   });
+  const lg=cx.createLinearGradient(0,inT,0,inB);lg.addColorStop(0,'rgba(255,255,255,.07)');lg.addColorStop(.5,'rgba(255,255,255,0)');lg.addColorStop(1,'rgba(0,0,0,.2)');
+  cx.fillStyle=lg;cx.fillRect(inL,inT,inR-inL,inB-inT);
+  const vg=cx.createRadialGradient(PW/2,cy,PH*.32,PW/2,cy,PW*.62);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.4)');
+  cx.fillStyle=vg;cx.fillRect(0,0,PW,PH);
+}
+function buildPitch(){const c=document.createElement('canvas');c.width=PW*DPR;c.height=PH*DPR;const g=c.getContext('2d');g.setTransform(DPR,0,0,DPR,0,0);paintPitch(g);M.pitch=c}
+function draw(){
+  cx.save();
+  if(M.shake>0){const k=M.shake*12,w=performance.now();cx.translate(Math.sin(w*.06)*k,Math.cos(w*.077)*k)}
+  cx.fillStyle='#07130c';cx.fillRect(-30,-30,PW+60,PH+60);
+  if(M.pitch)cx.drawImage(M.pitch,0,0,PW,PH);else paintPitch(cx);
+  cx.lineWidth=1;cx.strokeStyle='rgba(255,255,255,.25)';cx.fillStyle='rgba(10,20,14,.85)';cx.textAlign='left';cx.font='700 20px Anton';
   const b=M.ball;
   if(b.trail.length>2&&!b.owner){
     for(let i=1;i<b.trail.length;i++){
@@ -1870,7 +2084,7 @@ function draw(){
     }
     cx.globalAlpha=1;
   }
-  const ps=M.players.slice().sort((a,c)=>a.y-c.y);
+  const ps=M.ord||(M.ord=M.players.slice());ps.sort(byY);
   ps.forEach(p=>{if(p!==b.owner)drawPlayer(p)});
   drawBall(b);
   if(b.owner)drawPlayer(b.owner);
@@ -2141,11 +2355,12 @@ function renderTeachReq(){
     <div class="rrow" style="cursor:default">
       <div class="ava"><img src="${a.foto}"></div>
       <div style="flex:1;min-width:180px"><b>${a.nome}</b> <span class="hint">@${a.username}</span><br>
-        <span class="hint" style="font-size:.72rem">🛡️ ${a.teamName} · 📅 ${dBR(a.createdAt)}${a.approvalTeacher?` · por ${a.approvalTeacher} em ${dBR(a.approvalDate)}`:''}</span>
+        <span class="hint" style="font-size:.72rem">🛡️ ${a.teamName||'sem equipe'} · 📅 ${dBR(a.createdAt)}${a.approvalTeacher?` · por ${a.approvalTeacher} em ${dBR(a.approvalDate)}`:''}</span>
         ${a.approvalStatus==='rejected'&&a.rejectReason?`<div class="hint" style="font-size:.72rem;color:var(--coral)">Motivo: ${a.rejectReason}</div>`:''}
       </div>
       ${accStatusTag(a)}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${a.photoMethod==='presencial'?`<button class="btn sm gold" onclick="teacherCapture('${a.id}')">📷 CAPTURAR FOTO</button>`:''}
         ${a.approvalStatus!=='approved'?`<button class="btn sm green" onclick="approveAcc('${a.id}')">🟢 APROVAR JOGADOR</button>`:''}
         ${a.approvalStatus==='pending'?`<button class="btn sm red" onclick="rejectAccModal('${a.id}')">🔴 RECUSAR CADASTRO</button>`:''}
         ${a.approvalStatus==='approved'?`<button class="btn sm red" onclick="rejectAccModal('${a.id}',true)">🔒 BLOQUEAR</button>`:''}
@@ -2187,7 +2402,7 @@ function renderTeachAl(){
       return `<div class="rrow" onclick="evalModal('${s.id}')">${avaHTML(s)}
       <div style="flex:1"><b>${s.name}</b> <span class="tag pos">${POSN[s.pos]}</span>
       ${acc?accStatusTag(acc):'<span class="tag" style="background:#33453a;color:#cfe">ELENCO DEMO</span>'}<br>
-      <span class="hint" style="font-size:.72rem">Média ${m==null?'não avaliada':fmt1(m)} · ${starsOf(m)}★ · ${s.evals.length} avaliações${acc?` · 🛡️ ${acc.teamName}`:''}</span></div>
+      <span class="hint" style="font-size:.72rem">Média ${m==null?'não avaliada':fmt1(m)} · ${starsOf(m)}★ · ${s.evals.length} avaliações${acc?` · 🛡️ ${acc.teamName||'sem equipe'}`:''}</span></div>
       <span class="hint" style="font-size:.72rem">avaliar →</span></div>`}).join('')||'<p class="hint">Nenhum aluno encontrado.</p>'};
   fill('');$('#tSearch').oninput=e=>fill(e.target.value);
 }
